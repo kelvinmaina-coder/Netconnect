@@ -34,7 +34,7 @@ _SessionLocal = None
 
 
 def configure_database(url: str | None = None):
-    """Configure the module-level engine (useful for tests and initialization)."""
+    """Configure the module-level engine and session factory."""
     global _engine, _SessionLocal
     if _engine is not None:
         _engine.dispose()
@@ -69,7 +69,7 @@ def session_scope() -> Iterator[Session]:
 
 
 def initialize_database(url: str | None = None) -> None:
-    """Create tables and seed the non-privileged default roles."""
+    """Create tables and seed the default permission roles."""
     engine = configure_database(url) if url is not None or _engine is None else _engine
     Base.metadata.create_all(engine)
     from backend.database.models import Role
