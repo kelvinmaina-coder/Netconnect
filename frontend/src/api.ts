@@ -11,14 +11,26 @@ export type Room = {
   id: number;
   name: string;
   description?: string | null;
+  member_count?: number;
   [key: string]: unknown;
 };
 
 export type Message = {
   id: number;
-  sender_id: number;
+  sender_id: number | null;
+  receiver_id?: number | null;
+  conversation_id?: number | null;
+  room_id?: number | null;
   content: string;
   created_at: string;
+  message_type?: string;
+};
+
+export type Conversation = {
+  conversation_id: number;
+  other_user_id: number;
+  other_user: string | null;
+  message_count: number;
 };
 
 export type FileRecord = {
@@ -33,7 +45,7 @@ export type FileRecord = {
 export type Transfer = {
   id: number;
   file_id: number | null;
-  direction: "upload" | "download" | string;
+  direction: string;
   status: string;
   filename: string;
   size_bytes: number;
@@ -42,36 +54,26 @@ export type Transfer = {
   completed_at: string | null;
 };
 
+export type Notification = { id: number; kind: string; message: string; is_read: boolean; created_at: string };
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
-
-type RequestOptions = {
-  method?: string;
-  token?: string;
-  body?: unknown;
-};
+type RequestOptions = { method?: string; token?: string; body?: unknown };
 
 async function request<T>(path: string, { method = "GET", token, body }: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
-
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    response = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new Error(`Could not reach the API at ${API_BASE}. Check the backend and VITE_API_BASE_URL.`);
+    throw new Error(`Could not reach API at ${API_BASE}. Check the backend and VITE_API_BASE_URL.`);
   }
-
   const contentType = response.headers.get("content-type") ?? "";
   const payload: unknown = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
     const detail = typeof payload === "object" && payload !== null && "detail" in payload
       ? String((payload as { detail: unknown }).detail)
-      : typeof payload === "string" && payload.length > 0 ? payload : `Request failed (${response.status})`;
+      : typeof payload === "string" && payload ? payload : `Request failed (${response.status})`;
     throw new Error(detail);
   }
   return payload as T;
@@ -89,9 +91,16 @@ export const api = {
   joinRoom: (token: string, roomId: number) => request<{ room: Room }>(`/api/v1/rooms/${roomId}/join`, { method: "POST", token }),
   roomMessages: (token: string, roomId: number) => request<{ messages: Message[] }>(`/api/v1/rooms/${roomId}/messages`, { token }),
   sendRoomMessage: (token: string, roomId: number, content: string) => request<{ data: Message }>(`/api/v1/rooms/${roomId}/messages`, { method: "POST", token, body: { content } }),
-  conversations: (token: string) => request<{ conversations: Array<{ conversation_id: number; other_user_id: number; other_user: string | null; message_count: number }> }>("/api/v1/messages/conversations", { token }),
+  conversations: (token: string) => request<{ conversations: Conversation[] }>("/api/v1/messages/conversations", { token }),
+  conversationMessages: (token: string, conversationId: number) => request<{ messages: Message[] }>(`/api/v1/messages/conversations/${conversationId}/messages`, { token }),
+  searchMessages: (token: string, query: string) => request<{ messages: Message[] }>(`/api/v1/messages/search?q=${encodeURIComponent(query)}`, { token }),
   sendPrivateMessage: (token: string, recipientId: number, content: string) => request<{ data: Message }>("/api/v1/messages/private", { method: "POST", token, body: { recipient_id: recipientId, content } }),
+  notifications: (token: string) => request<{ notifications: Notification[] }>("/api/v1/notifications", { token }),
   files: (token: string) => request<{ files: FileRecord[] }>("/api/v1/files", { token }),
   transfers: (token: string) => request<{ transfers: Transfer[] }>("/api/v1/files/transfers", { token }),
   tcpInfo: (token: string) => request<{ host: string; port: number; max_file_bytes: number; protocol: string; note: string }>("/api/v1/files/tcp-info", { token }),
 };
+
+export function websocketUrl(token: string): string {
+  return `${(import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/^http/, "ws").replace(/\/$/, "")}/api/v1/ws?token=${encodeURIComponent(token)}`;
+}
